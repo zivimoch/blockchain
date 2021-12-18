@@ -20,6 +20,8 @@ class Blockchain(object):
         return hashlib.sha256(block_encoded).hexdigest()
 
     def __init__(self):
+        self.nodes = set()
+
         self.chain = []
 
         self.current_transactions = []
@@ -27,31 +29,82 @@ class Blockchain(object):
         genesis_hash = self.hash_block("genesis_block")
 
         self.append_block(
-            hash_of_previous_black = genesis_hash,
+            hash_of_previous_block = genesis_hash,
             nonce = self.proof_of_work(0, genesis_hash, [])
         )
 
-    def proof_of_work(self, index, hash_of_previous_black, transactions):
+    def add_node(self, address):
+        parse_url = urlparse(address)
+        
+        self.nodes.add(parse_url.netloc)
+        print(parse_url.netloc)
+
+    def valid_chain(self, chain):
+        last_block = chain[0]
+        current_index = 1
+
+        while current_index < len(chain):
+            block = chain[current_index]
+
+            if block['hash_of_previous_block'] !=   self.hash_block(last_block):
+                return false
+
+            if not self.valid_proof(
+                current_index,
+                block['hash_of_previous_block'],
+                block['transaction'],
+                block['nonce']):
+                return false
+
+            last_block = block
+            current_index += 1
+        
+        return True
+        
+    def update_blockchain(self):
+        neighbours = self.nodes
+        new_chain = None
+
+        max_length = len(self.chain)
+
+        for node in neighbours:
+            response = requests.get(f'http://{node}/blockchain')
+
+            if response.status_code == 200:
+                length = response.json()['length']
+                chain = response.json()['chain']
+
+                if length > max_lengtha and self.valid_chain(chain):
+                    max_length = length
+                    new_chain = chain
+
+                if new_chain:
+                    self.chain = new_chain
+                    return True
+
+        return False
+
+    def proof_of_work(self, index, hash_of_previous_block, transactions):
         nonce = 0
 
-        while self.valid_proof(index, hash_of_previous_black, transactions, nonce)is False:
+        while self.valid_proof(index, hash_of_previous_block, transactions, nonce)is False:
             nonce += 1
         return nonce
 
-    def valid_proof(self, index, hash_of_previous_black, transactions, nonce):
-        content = f'{index}{hash_of_previous_black}{transactions}{nonce}'.encode()
+    def valid_proof(self, index, hash_of_previous_block, transactions, nonce):
+        content = f'{index}{hash_of_previous_block}{transactions}{nonce}'.encode()
 
         content_hash = hashlib.sha256(content).hexdigest()
 
         return content_hash[:len(self.difficulty_target)] == self.difficulty_target
 
-    def append_block(self, nonce, hash_of_previous_black):
+    def append_block(self, nonce, hash_of_previous_block):
         block = {
             'index' : len(self.chain),
             'timestemp' : time(),
             'transaction': self.current_transactions,
             'nonce' : nonce,
-            'hash_of_previous_black' : hash_of_previous_black
+            'hash_of_previous_block' : hash_of_previous_block
         }
 
         self.current_transactions = []
@@ -104,8 +157,8 @@ def mine_block():
     response = {
         'message' : 'Block baru telah ditambahkan',
         'index' : block['index'],
-        'hash_of_previous_black' : block['hash_of_previous_black'],
-        'block' : block['block'],
+        'hash_of_previous_block' : block['hash_of_previous_block'],
+        'nonce' : block['nonce'],
         'transaction' : block['transactions']
     }
 
@@ -127,6 +180,38 @@ def new_transaction():
     
     response = {'message' : f'Transaksi akan ditambahkan ke block {index}'}
     return (jsonify(response), 201)
+
+@app.route('/nodes/add_nodes', methods=['POST'])
+def add_nodes():
+    values = request.get_json()
+    nodes = values.get('nodes')
+
+    if nodes is None:
+        return "Error, Missing Node(s) Info", 400
+
+    for node in nodes:
+        blockchain.add_node(node)
+
+    response = {
+        'message' : 'Node baru telah ditambahkan',
+        'nodes' : list(blockchain.nodes)
+    }
+    return jsonify(response), 200
+
+@app.route('/nodes/sync', methods = ['GET'])
+def sync():
+    update = blockchain.update_blockchain()
+    if updated:
+        response = {
+            'message' : 'Blockchain has been updated',
+            'blockchain' : blockchain.chain
+        }
+    else:
+        response = {
+            'message' : 'Blockchain already use newest data',
+            'blockchain' : blockchain.chain
+        }
+    return jsonify(response), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(sys.argv[1]))
